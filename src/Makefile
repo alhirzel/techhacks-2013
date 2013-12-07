@@ -1,6 +1,6 @@
 
 PROG = firmware
-SOURCES = src/${PROG}.c
+SOURCES = ${PROG}.cc
 #LFUSE = 0xCE
 #HFUSE = 0xD9
 #EFUSE = 0xFF
@@ -11,14 +11,14 @@ CFLAGS += -Wl,-Map,${PROG}.map
 CFLAGS += -std=c99
 #CFLAGS += -Wl,-u,vfprintf -lprintf_flt -lm
 
-DUDE_FLAGS = -c dragon_isp -P usb -p m328p -F
-#DUDE_FLAGS = -c arduino -b 57600 -P /dev/ttyUSB0 -p m328p
+#DUDE_FLAGS = -c dragon_isp -P usb -p m328p -F
+DUDE_FLAGS = -c arduino -b 57600 -P /dev/ttyUSB0 -p m328p
 
 run_avr = echo
-CC = avr-gcc
+CC = avr-g++
 OBJCOPY = avr-objcopy
 OBJDUMP = avr-objdump
-AVRDUDE = sudo avrdude
+AVRDUDE = avrdude
 
 .PHONY: build write clean
 
