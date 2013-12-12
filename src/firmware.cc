@@ -7,35 +7,41 @@
 #define ON_PIN 0
 #define OFF_PIN 1
 
-// States:
-// 0: Really off -> 1a.
-// 1: Normally on -> 2a.
-// 2: Courtesy time -> 0b or 3a.
-// 3: Override option (5s) -> 1b or 0a.
+#define RELAY_COIL_TIME (10)
 
-enum State {
-	OFF,
-	ON,
-	COURTESY,
-	OVERRIDE_OPTION
-} state;
-int delay;
+bool state;
+
+void wait (unsigned ms) {
+	for (unsigned i = 0; i < ms / 10; ++i)
+		_delay_ms (10);
+}
+
+void switch_on () {
+	PORTB |= 1 << ON_PIN;
+	wait (RELAY_COIL_TIME);
+	PORTB &= ~(1 << ON_PIN);
+	wait (RELAY_COIL_TIME);
+}
+
+void switch_off () {
+	PORTB |= 1 << OFF_PIN;
+	wait (RELAY_COIL_TIME);
+	PORTB &= ~(1 << OFF_PIN);
+	wait (RELAY_COIL_TIME);
+}
 
 int main () {
-	state = OFF;
+	state = false;
 	// Enable LED output.
-	DDRB = (1 << 5) | (1 << 1) | (1 << 0);
+	DDRB = (1 << 5) | (1 << ON_PIN) | (1 << OFF_PIN);
 	// Go to power down mode when sleep is executed.
 	SMCR |= (1 << SM0) | (1 << SM1) | (1 << SM2) | (1 << SE);
+	// Force relay off.
+	switch_off ();
 	// Enable int0 for any change.
 	EICRA = 1 << ISC00;
 	EIMSK |= 1 << INT0;
 	EIFR |= 1 << INTF0;
-	// Set up timer.
-	TCCR1A = 0x00;
-	TCCR1B = 0x05;
-	TCCR1C = 0x00;
-	TIMSK1 = 0;
 	// Pull up INT0.
 	PORTD = 1 << 2;
 	// Set up serial port.
@@ -47,87 +53,50 @@ int main () {
 	// Enable interrupts and wait forever.
 	sei ();
 	while (1) {
-		__asm__ volatile ("sleep");
+		//__asm__ volatile ("sleep");
 	}
 }
 
-void wait_for_stability (bool level) {
-	for (char t = 0; t < 10; ++t)
-		_delay_ms (10);
-	if (level == !(PIND & (1 << 2)))
-		EIFR |= 1 << INTF0;
-}
-
-void switch_on () {
-	PORTB |= 1 << ON_PIN;
-	state = ON;
-	wait_for_stability (1);
-	PORTB &= ~(1 << ON_PIN);
-}
-
-void switch_off () {
-	PORTB |= 1 << OFF_PIN;
-	state = OFF;
-	wait_for_stability (0);
-	PORTB &= ~(1 << OFF_PIN);
-}
-
-void start_timer (int seconds) {
-	unsigned long long ticks = F_CPU * seconds / 1024;
-	TCNT1H = 0xff - (ticks >> 8) & 0xff;
-	TCNT1L = 0xff - ticks & 0xff;
-	delay = ticks >> 16;
-	TIFR1 = 1 << TOV1;
-	TIMSK1 = 1 << TOIE1;
-}
+#define NOW_OFF (0x00)
+#define NOW_ON (0x01)
 
 ISR (INT0_vect) {
-	bool level = !(PIND & (1 << 2));
-	UDR0 = 'A' + level;
-	if (level) {
-		switch (state) {
-		case OFF:
-			switch_on ();
-			break;
-		case COURTESY:
-			state = OVERRIDE_OPTION;
-			wait_for_stability (level);
-			start_timer (5);
-			break;
-		default:
-			break;
-		}
-	}
-	else {
-		switch (state) {
-		case ON:
-			state = COURTESY;
-			wait_for_stability (level);
-			start_timer (60);
-			break;
-		case OVERRIDE_OPTION:
-			switch_off ();
-			break;
-		default:
-			break;
-		}
-	}
-}
+	_delay_ms (10);
+	uint8_t state = 0x01 ^ ((PIND & (1 << 2)) >> 2);
 
-ISR (TIMER1_OVF_vect) {
-	UDR0 = '0' + delay;
-	if (--delay < 0)
-	{
-		switch (state) {
-		case COURTESY:
+	static uint8_t old_state = 0;
+
+	if (old_state != state) {
+		old_state = state;
+
+		if (state == NOW_ON) {
+			UDR0 = 'N';
 			switch_off ();
-			break;
-		case OVERRIDE_OPTION:
-			state = ON;
-			wait_for_stability (true);
-			break;
-		default:
-			break;
+		} else {
+			UDR0 = 'F';
+			switch_on ();
+			wait (30000);
+			switch_off ();
+			wait (1000);
 		}
 	}
+	// clear flag
+	//EIFR |= 1 << INTF0;
+	/*
+	wait (100);
+	bool newstate = ~PIND & (1 << 2);
+	if (state != newstate) {
+		state = newstate;
+		if (!state) {
+			UDR0 = 'A';
+			// Switched off.
+			switch_on ();
+			wait (5000);
+			switch_off ();
+		}
+		else {
+			UDR0 = 'B';
+		}
+	}
+	*/
 }
